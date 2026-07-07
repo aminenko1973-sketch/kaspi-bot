@@ -5,9 +5,10 @@ from fastapi.responses import JSONResponse
 import uvicorn
 import os
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8941197384:AAGKALzN4wIFmAOFXDGmv6PKOvEBjf6M_Zc")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8941197384:***")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "kaspi_secret_2026")
 PORT = int(os.environ.get("PORT", 10000))
+RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kaspi-bot-musm.onrender.com").rstrip("/")
 
 chats: dict = {}
 
@@ -71,7 +72,7 @@ bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_numbe
 async def startup():
     await bot_app.initialize()
     await bot_app.start()
-    await bot_app.bot.set_webhook(url=f"https://kaspi-bot.onrender.com/webhook/{WEBHOOK_SECRET}", allowed_updates=Update.ALL_TYPES)
+    await bot_app.bot.set_webhook(url=f"{RENDER_URL}/webhook/{WEBHOOK_SECRET}", allowed_updates=Update.ALL_TYPES)
 
 @app.post("/webhook/{secret}")
 async def telegram_webhook(secret: str, request: Request):
