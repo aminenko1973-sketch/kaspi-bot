@@ -2,20 +2,20 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-from telegram.constants import ParseMode
 import os
 import json
-import httpx
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "kaspi_secret_2026")
 PORT = int(os.environ.get("PORT", 10000))
-RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/") or f"https://{os.environ.get('RENDER_SERVICE_ID', 'kaspi-bot-musm')}.onrender.com"
-DATA_FILE = "/tmp/kaspi_chat.json"
+RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
 
 if not BOT_TOKEN:
-    raise RuntimeError("Set BOT_TOKEN env var")
+    raise RuntimeError("Set BOT_TOKEN")
+if not RENDER_URL:
+    raise RuntimeError("Set RENDER_EXTERNAL_URL")
 
+DATA_FILE = "/tmp/kaspi_chat.json"
 chats = {}
 
 def load_chats():
@@ -47,7 +47,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat["users"].append(user_id)
             role = "плюсует (+)" if len(chat["users"]) == 1 else "минусует (-)"
         else:
-            await update.message.reply_text("В этом чате уже есть два участника. Сначала сбросьте счёт /reset")
+            await update.message.reply_text("Сначала сбросьте счёт /reset")
             return
     else:
         role = "плюсует (+)" if chat["users"][0] == user_id else "минусует (-)"
