@@ -3,17 +3,31 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, Con
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import uvicorn
-import os
+import os, json
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "kaspi_secret_2026")
 PORT = int(os.environ.get("PORT", 10000))
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kaspi-bot-musm.onrender.com").rstrip("/")
+DATA_FILE = "/tmp/kaspi_chat.json"
 
 if not BOT_TOKEN:
-    raise RuntimeError("Set BOT_TOKEN env var")
+    raise RuntimeError("Set BOT_TOKEN")
 
 chats: dict = {}
+
+def load_chats():
+    global chats
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            chats = json.load(f)
+            chats = {int(k): {"users": v["users"], "balance": float(v["balance"])} for k, v in chats.items()}
+    except FileNotFoundError:
+        chats = {}
+
+def save_chats():
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(chats, f, ensure_ascii=False, indent=2)
 
 def get_chat(chat_id: int):
     if chat_id not in chats:
@@ -37,11 +51,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Вы — участник №{chat['users'].index(user_id)+1} ({role}).\n"
         f"Просто отправьте число."
     )
+    save_chats()
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = get_chat(update.effective_chat.id)
     chat["users"] = []
     chat["balance"] = 0.0
+    save_chats()
     await update.message.reply_text("Счёт сброшен. Нажмите /start, чтобы зарегистрировать первого участника.")
 
 async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -63,6 +79,7 @@ async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Вы не участник этого счёта.")
         return
     chat["balance"] += delta
+    save_chats()
     await update.message.reply_text(f"Итого: {chat['balance']:.2f}")
 
 app = FastAPI()
@@ -73,6 +90,7 @@ bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_numbe
 
 @app.on_event("startup")
 async def startup():
+    load_chats()
     await bot_app.initialize()
     await bot_app.start()
     await bot_app.bot.set_webhook(url=f"{RENDER_URL}/webhook/{WEBHOOK_SECRET}", allowed_updates=Update.ALL_TYPES)
