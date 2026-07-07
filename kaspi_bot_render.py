@@ -1,0 +1,122 @@
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.constants import ParseMode
+import os
+import json
+import httpx
+
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "kaspi_secret_2026")
+PORT = int(os.environ.get("PORT", 10000))
+RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/") or f"https://{os.environ.get('RENDER_SERVICE_ID', 'kaspi-bot-musm')}.onrender.com"
+DATA_FILE = "/tmp/kaspi_chat.json"
+
+if not BOT_TOKEN:
+    raise RuntimeError("Set BOT_TOKEN env var")
+
+chats = {}
+
+def load_chats():
+    global chats
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            chats = json.load(f)
+            chats = {int(k): {"users": v["users"], "balance": float(v["balance"])} for k, v in chats.items()}
+    except FileNotFoundError:
+        chats = {}
+
+def save_chats():
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(chats, f, ensure_ascii=False, indent=2)
+
+def get_chat(chat_id: int):
+    if chat_id not in chats:
+        chats[chat_id] = {"users": [], "balance": 0.0}
+    return chats[chat_id]
+
+app = FastAPI()
+bot_app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = get_chat(update.effective_chat.id)
+    user_id = update.effective_user.id
+    if user_id not in chat["users"]:
+        if len(chat["users"]) < 2:
+            chat["users"].append(user_id)
+            role = "плюсует (+)" if len(chat["users"]) == 1 else "минусует (-)"
+        else:
+            await update.message.reply_text("В этом чате уже есть два участника. Сначала сбросьте счёт /reset")
+            return
+    else:
+        role = "плюсует (+)" if chat["users"][0] == user_id else "минусует (-)"
+    await update.message.reply_text(
+        f"Счёт запущен.\n"
+        f"Вы — участник №{chat['users'].index(user_id)+1} ({role}).\n"
+        f"Просто отправьте число."
+    )
+    save_chats()
+
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = get_chat(update.effective_chat.id)
+    chat["users"] = []
+    chat["balance"] = 0.0
+    save_chats()
+    await update.message.reply_text("Счёт сброшен. Нажмите /start, чтобы зарегистрировать первого участника.")
+
+async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = get_chat(update.effective_chat.id)
+    user_id = update.effective_user.id
+    if len(chat["users"]) != 2:
+        await update.message.reply_text("Сначала оба пользователя должны нажать /start.")
+        return
+    try:
+        value = float(update.message.text.replace(",", "."))
+    except ValueError:
+        await update.message.reply_text("Нужно число.")
+        return
+    if user_id == chat["users"][0]:
+        delta = value
+    elif user_id == chat["users"][1]:
+        delta = -value
+    else:
+        await update.message.reply_text("Вы не участник этого счёта.")
+        return
+    chat["balance"] += delta
+    save_chats()
+    await update.message.reply_text(f"Итого: {chat['balance']:.2f}")
+
+bot_app.add_handler(CommandHandler("start", start))
+bot_app.add_handler(CommandHandler("reset", reset))
+bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_number))
+
+@app.on_event("startup")
+async def startup():
+    load_chats()
+    await bot_app.initialize()
+    await bot_app.start()
+    webhook_url = f"{RENDER_URL}/webhook/{WEBHOOK_SECRET}"
+    await bot_app.bot.set_webhook(url=webhook_url, allowed_updates=Update.ALL_TYPES)
+    print(f"Webhook set to: {webhook_url}")
+
+@app.post("/webhook/{secret}")
+async def telegram_webhook(secret: str, request: Request):
+    if secret != WEBHOOK_SECRET:
+        return JSONResponse({"ok": False}, status_code=403)
+    data = await request.json()
+    update = Update.de_json(data, bot_app.bot)
+    await bot_app.process_update(update)
+    return JSONResponse({"ok": True})
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+@app.get("/")
+async def root():
+    return {"service": "kaspi-bot", "status": "running"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
