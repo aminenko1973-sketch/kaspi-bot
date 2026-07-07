@@ -5,10 +5,13 @@ from fastapi.responses import JSONResponse
 import uvicorn
 import os
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8941197384:***")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "kaspi_secret_2026")
 PORT = int(os.environ.get("PORT", 10000))
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL", "https://kaspi-bot-musm.onrender.com").rstrip("/")
+
+if not BOT_TOKEN:
+    raise RuntimeError("Set BOT_TOKEN env var")
 
 chats: dict = {}
 
